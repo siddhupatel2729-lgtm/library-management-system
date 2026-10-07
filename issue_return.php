@@ -1,0 +1,24 @@
+<?php
+require_once "config/db.php";
+$page_title="Issue / Return";$page_heading="Issue / Return";$page_subtitle="Track book circulation and return status.";$active="issue";
+$action=$_GET['action']??'list';
+if(isset($_GET['return'])){ $id=(int)$_GET['return'];$stmt=$conn->prepare("UPDATE issue_return SET status='Returned',return_date=CURDATE() WHERE issue_id=? AND status='Issued'");$stmt->bind_param("i",$id);if($stmt->execute())$_SESSION['success']="Book returned successfully.";else $_SESSION['error']="Return failed.";header("Location: issue_return.php");exit;}
+if($_SERVER['REQUEST_METHOD']==='POST'){ $book=(int)$_POST['book_id'];$student=(int)$_POST['student_id'];$date=$_POST['issue_date'];$check=$conn->prepare("SELECT issue_id FROM issue_return WHERE book_id=? AND status='Issued'");$check->bind_param("i",$book);$check->execute();if($check->get_result()->num_rows){$_SESSION['error']="This book is already issued.";}else{$stmt=$conn->prepare("INSERT INTO issue_return(book_id,student_id,issue_date,status) VALUES(?,?,?,'Issued')");$stmt->bind_param("iis",$book,$student,$date);$_SESSION['success']=$stmt->execute()?"Book issued successfully.":"Could not issue book.";}header("Location: issue_return.php");exit;}
+$books=$conn->query("SELECT * FROM books WHERE book_id NOT IN (SELECT book_id FROM issue_return WHERE status='Issued') ORDER BY title");
+$students=$conn->query("SELECT * FROM students ORDER BY name");
+$status=$_GET['status']??'All';$sid=(int)($_GET['student_id']??0);
+$sql="SELECT ir.*,b.title,s.name FROM issue_return ir JOIN books b ON b.book_id=ir.book_id JOIN students s ON s.student_id=ir.student_id WHERE 1";
+$params=[];$types="";
+if($status!=='All'){ $sql.=" AND ir.status=?";$params[]=$status;$types.="s"; } if($sid){$sql.=" AND ir.student_id=?";$params[]=$sid;$types.="i";}$sql.=" ORDER BY ir.issue_id DESC";
+$stmt=$conn->prepare($sql);if($params)$stmt->bind_param($types,...$params);$stmt->execute();$list=$stmt->get_result();
+include "includes/header.php"; ?>
+<?php if($action==='issue'): ?><div class="card"><div class="card-head"><h2>Issue Book</h2><a class="btn btn-secondary" href="issue_return.php">← Back</a></div>
+<?php if(!$books->num_rows): ?><div class="alert error">No available books to issue. All books may currently be issued.</div><?php endif; ?>
+<form method="post"><div class="form-grid"><div class="form-group"><label>Book *</label><select required name="book_id"><option value="">Select available book</option><?php while($b=$books->fetch_assoc()): ?><option value="<?= $b['book_id'] ?>"><?= htmlspecialchars($b['title']) ?> — <?= htmlspecialchars($b['author']) ?></option><?php endwhile; ?></select></div>
+<div class="form-group"><label>Student *</label><select required name="student_id"><option value="">Select student</option><?php while($s=$students->fetch_assoc()): ?><option value="<?= $s['student_id'] ?>"><?= $s['student_id'] ?> — <?= htmlspecialchars($s['name']) ?></option><?php endwhile; ?></select></div>
+<div class="form-group"><label>Issue Date *</label><input type="date" name="issue_date" required value="<?= date('Y-m-d') ?>"></div></div>
+<div class="form-actions"><button class="btn btn-primary">🔄 Issue Book</button><a class="btn btn-secondary" href="issue_return.php">Cancel</a></div></form></div>
+<?php else: ?><div class="card"><div class="card-head"><h2>Issue / Return Records</h2><a class="btn btn-primary" href="issue_return.php?action=issue">+ Issue Book</a></div>
+<form class="search-row" method="get"><select name="status"><option <?= $status==='All'?'selected':'' ?>>All</option><option <?= $status==='Issued'?'selected':'' ?>>Issued</option><option <?= $status==='Returned'?'selected':'' ?>>Returned</option></select><input name="student_id" type="number" placeholder="Student ID" value="<?= $sid?:'' ?>"><button class="btn btn-secondary">Filter</button><a class="btn btn-secondary" href="issue_return.php">Clear</a></form>
+<div class="table-wrap"><table><tr><th>ID</th><th>Book</th><th>Student</th><th>Issue Date</th><th>Return Date</th><th>Status</th><th>Action</th></tr>
+<?php if($list->num_rows):while($r=$list->fetch_assoc()): ?><tr><td><?= $r['issue_id'] ?></td><td><?= htmlspecialchars($r['title']) ?></td><td><?= htmlspecialchars($r['name']) ?> (#<?= $r['student_id'] ?>)</td><td><?= date('d M Y',strtotime($r['issue_date'])) ?></td><td><?= $r['return_date']?date('d M Y',strtotime($r['return_date'])):'—' ?></td><td><span class="badge badge-<?= strtolower($r['status']) ?>"><?= $r['status'] ?></span></td><td><?php if($r['status']==='Issued'): ?><a data-confirm="Mark this book as returned?" class="btn btn-success" href="issue_return.php?return=<?= $r['issue_id'] ?>">Return</a><?php else: ?><span class="muted">Completed</span><?php endif; ?></td></tr><?php endwhile;else: ?><tr><td colspan="7" class="empty">No issue/return records found.</td></tr><?php endif; ?></table></div></div><?php endif; include "includes/footer.php"; ?>
